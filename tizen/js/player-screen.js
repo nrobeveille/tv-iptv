@@ -28,7 +28,7 @@ function PlayerScreen(items, index) {
 PlayerScreen.prototype.channel = function () { return this.items[this.index]; };
 PlayerScreen.prototype.isLive = function () { return this.channel().type === 'live'; };
 
-PlayerScreen.prototype.onShow = function () { document.body.classList.add('playing'); };
+PlayerScreen.prototype.onShow = function () { document.documentElement.classList.add('playing'); };
 
 PlayerScreen.prototype.destroy = function () {
   this.savePosition();
@@ -39,7 +39,7 @@ PlayerScreen.prototype.destroy = function () {
   clearTimeout(this.numberTimer);
   clearTimeout(this.retryTimer);
   Player.stop();
-  document.body.classList.remove('playing');
+  document.documentElement.classList.remove('playing');
 };
 
 PlayerScreen.prototype.savePosition = function () {

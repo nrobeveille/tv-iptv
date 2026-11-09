@@ -63,6 +63,8 @@ var Player = (function () {
       try {
         av.open(url);
         av.setListener(avListener());
+        var obj = document.getElementById('av-player');
+        if (obj) obj.style.display = 'block';
         av.setDisplayRect(0, 0, 1920, 1080);
         try { av.setDisplayMethod(ASPECT[aspect]); } catch (e) { }
         if (opts.userAgent) { try { av.setStreamingProperty('USER_AGENT', opts.userAgent); } catch (e) { } }

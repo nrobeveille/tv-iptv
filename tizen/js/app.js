@@ -1237,6 +1237,12 @@ App.handleKey = (function () {
 
 App.start = function () {
   registerKeys();
+  if (Player.isNative()) {
+    // Sur la TV : le lecteur <video> de secours ne sert à rien et masquerait la vidéo AVPlay.
+    document.documentElement.classList.add('native');
+    var v = document.getElementById('html5-video');
+    if (v) v.remove();
+  }
   App.settings = Object.assign(App.defaults(), Store.get('settings', {}));
   // Playlist fournie par le script d'installation : utilisée tant qu'aucune n'est configurée.
   var d = window.DEFAULT_PLAYLIST;

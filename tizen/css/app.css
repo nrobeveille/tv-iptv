@@ -25,7 +25,8 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
-body.playing, body.playing html { background: transparent; }
+/* Pendant la lecture, tout doit être transparent : la vidéo AVPlay est dessinée DERRIÈRE la page. */
+html.playing, html.playing body { background: transparent !important; }
 
 #av-player, #html5-video {
   position: fixed;
@@ -35,7 +36,9 @@ body.playing, body.playing html { background: transparent; }
   background: transparent;
 }
 #html5-video { background: #000; display: none; }
-body.playing #html5-video { display: block; }
+/* Lecteur <video> seulement dans un navigateur ordinaire (sur la TV, il masquerait l'image AVPlay). */
+html.playing:not(.native) #html5-video { display: block; }
+html.native #html5-video { display: none !important; }
 
 #screens { position: absolute; inset: 0; z-index: 1; }
 .screen { position: absolute; inset: 0; }
