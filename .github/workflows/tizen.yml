@@ -1,0 +1,64 @@
+name: Build Tizen (TV Samsung)
+
+on:
+  push:
+    branches: ['**']
+    tags-ignore: ['**']
+    paths:
+      - 'tizen/**'
+      - '.github/workflows/tizen.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tizen-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Vérifier la syntaxe JavaScript
+        run: for f in tizen/js/*.js; do node --check "$f"; done
+
+      - name: Empaqueter le .wgt (non signé)
+        run: |
+          N=${{ github.run_number }}
+          VERSION="1.0.$N"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          mkdir -p build/app
+          cp -r tizen/index.html tizen/config.xml tizen/icon.png tizen/css tizen/js build/app/
+          echo "window.APP_VERSION = { build: $N, name: '$VERSION' };" > build/app/js/version.js
+          sed -i "s/version=\"1.0.0\"/version=\"$VERSION\"/" build/app/config.xml
+          (cd build/app && zip -qr ../tv-iptv.wgt .)
+          cp tizen/scripts/install-tizen.ps1 tizen/scripts/install-tizen.sh build/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tv-iptv-tizen
+          path: |
+            build/tv-iptv.wgt
+            build/install-tizen.ps1
+            build/install-tizen.sh
+
+      - name: Publier la release Tizen
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="tizen-v$VERSION"
+          # --latest=false : la « dernière release » reste celle de l'APK Android (son système de mise à jour la lit).
+          gh release create "$TAG" build/tv-iptv.wgt build/install-tizen.ps1 build/install-tizen.sh \
+            --title "IPTV Samsung (Tizen) $VERSION" \
+            --notes "Appli pour TV Samsung, compilée depuis ${GITHUB_SHA::7}. Installation : voir tizen/README.md (le script signe le .wgt avec ton certificat Samsung puis l'installe)." \
+            --target "$GITHUB_SHA" \
+            --latest=false
+          # On ne garde que les 3 dernières versions Tizen.
+          gh release list --limit 100 --json tagName,createdAt \
+            -q '[.[] | select(.tagName | startswith("tizen-v"))] | sort_by(.createdAt) | reverse | .[3:] | .[].tagName' \
+            | xargs -r -n1 gh release delete --yes --cleanup-tag

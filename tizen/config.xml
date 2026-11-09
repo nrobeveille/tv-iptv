@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget xmlns="http://www.w3.org/ns/widgets"
+        xmlns:tizen="http://tizen.org/ns/widgets"
+        id="https://github.com/nrobeveille/tv-iptv"
+        version="1.0.0"
+        viewmodes="maximized">
+
+    <tizen:application id="TvIptvNrob.IPTV" package="TvIptvNrob" required_version="3.0"/>
+    <name>IPTV</name>
+    <description>Lecteur IPTV (playlist M3U) pour les TV Samsung</description>
+    <author href="https://github.com/nrobeveille">Nathan Robeveille</author>
+    <content src="index.html"/>
+    <icon src="icon.png"/>
+
+    <feature name="http://tizen.org/feature/screen.size.all"/>
+
+    <!-- Accès à tous les serveurs IPTV (http et https) -->
+    <access origin="*" subdomains="true"/>
+    <tizen:allow-navigation>*</tizen:allow-navigation>
+    <tizen:content-security-policy>default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; img-src * data: blob:; media-src * blob:; connect-src *</tizen:content-security-policy>
+
+    <tizen:privilege name="http://tizen.org/privilege/internet"/>
+    <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
+    <tizen:privilege name="http://tizen.org/privilege/application.launch"/>
+
+    <tizen:setting screen-orientation="landscape" context-menu="disable" background-support="disable"
+                   encryption="disable" install-location="auto" hwkey-event="enable"/>
+    <tizen:metadata key="http://samsung.com/tv/metadata/use.preview" value="bg_service"/>
+    <tizen:profile name="tv-samsung"/>
+</widget>

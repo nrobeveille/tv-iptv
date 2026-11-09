@@ -23,6 +23,9 @@ l'adresse d'une playlist **M3U** (compte IPTV) et on navigue comme dans une appl
 Les playlists et le guide sont gardés en cache sur la TV (actualisés toutes les 24 h / 12 h,
 ou à la demande).
 
+> **TV Samsung ?** Elles tournent sous Tizen, pas Android : la version Samsung (appli web,
+> lecteur AVPlay) est dans [`tizen/`](tizen/README.md), avec le guide d'installation pas à pas.
+
 Stack : Kotlin, Jetpack Compose + Compose for TV, Media3 ExoPlayer (HLS, MPEG-TS, MP4, MKV…),
 Coil, DataStore, ZXing (QR code).
 

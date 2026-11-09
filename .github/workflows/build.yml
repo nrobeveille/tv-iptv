@@ -4,7 +4,12 @@ on:
   push:
     branches: ['**']
     tags-ignore: ['**']
+    paths-ignore:
+      - 'tizen/**'
+      - '.github/workflows/tizen.yml'
   pull_request:
+    paths-ignore:
+      - 'tizen/**'
   workflow_dispatch:
 
 permissions:
@@ -74,7 +79,7 @@ jobs:
             --notes "Compilé automatiquement depuis ${GITHUB_SHA::7} : $(git log -1 --pretty=%s)" \
             --target "$GITHUB_SHA" \
             --latest
-          # On ne garde que les 5 dernières versions.
+          # On ne garde que les 5 dernières versions Android (les releases tizen-v* sont gérées à part).
           gh release list --limit 100 --json tagName,createdAt \
-            -q 'sort_by(.createdAt) | reverse | .[5:] | .[].tagName' \
+            -q '[.[] | select(.tagName | startswith("v"))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' \
             | xargs -r -n1 gh release delete --yes --cleanup-tag
