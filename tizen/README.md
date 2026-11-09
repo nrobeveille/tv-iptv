@@ -117,7 +117,12 @@ Sur macOS / Linux : `./install-tizen.sh 192.168.1.50`.
 
 ### 8. Ajouter ta playlist
 
-Au premier lancement : **Ajouter une playlist** → saisis l'adresse M3U de ton abonnement. Pour
+Au premier lancement : **Ajouter une playlist** → type **Compte Xtream** (serveur, identifiant,
+mot de passe : le plus fiable) ou **Lien M3U**. Un lien `get.php?username=…&password=…` est
+automatiquement utilisé comme compte Xtream : beaucoup de fournisseurs bloquent désormais le
+téléchargement du M3U (erreur 884) mais laissent l'API Xtream ouverte. Le guide TV vient alors
+de `xmltv.php`, ou chaîne par chaîne via l'API s'il est bloqué ; les épisodes d'une série sont
+chargés à son ouverture. Pour
 éviter de la taper à la télécommande, utilise l'appli **SmartThings** sur ton téléphone
 (télécommande → clavier) : tu peux y coller l'adresse.
 

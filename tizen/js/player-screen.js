@@ -136,7 +136,7 @@ PlayerScreen.prototype.showBanner = function () {
   var self = this;
   var c = this.channel();
   var now = Date.now();
-  var cur = App.guide.now(c, now), next = App.guide.next(c, now);
+  var cur = App.progNow(c, now, true), next = App.progNext(c, now);
   this.$('.banner').innerHTML = artwork(c.logo, c.name, 'banner-logo') +
     '<div class="txt"><div class="title">' + (c.number ? '<span class="num">' + c.number + '</span>' : '') + esc(c.name) +
     (App.isFav(c.url) ? ' <span class="star">★</span>' : '') + '</div>' +
@@ -147,6 +147,15 @@ PlayerScreen.prototype.showBanner = function () {
   this.$('.banner').classList.add('show');
   clearTimeout(this.bannerTimer);
   this.bannerTimer = setTimeout(function () { self.$('.banner').classList.remove('show'); }, 6000);
+};
+
+/** Programme reçu entre-temps (guide court Xtream) : on met à jour le bandeau affiché. */
+PlayerScreen.prototype.refresh = function () {
+  if (!this.isLive() || !this.$('.banner').classList.contains('show')) return;
+  var timer = this.bannerTimer;
+  this.showBanner();
+  clearTimeout(this.bannerTimer);
+  this.bannerTimer = timer;
 };
 
 PlayerScreen.prototype.toggleBanner = function () {

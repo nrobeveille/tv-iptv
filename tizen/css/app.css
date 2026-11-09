@@ -193,6 +193,7 @@ h2 { font-size: 32px; font-weight: 600; margin: 0 0 8px; }
 .series .left { width: 380px; flex: none; }
 .series .left h1 { font-size: 34px; margin-top: 22px; }
 .series .fav-row { margin-top: 18px; padding: 0; }
+.series .plot { color: var(--subtle); font-size: 18px; line-height: 1.35; max-height: 9.5em; overflow: hidden; margin-top: 18px; }
 .series .right { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .series .seasons { min-height: 70px; margin-bottom: 10px; }
 .series .eps { flex: 1; height: 860px; }

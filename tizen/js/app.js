@@ -99,6 +99,7 @@ App.loadActive = function () {
   var p = App.activePlaylist();
   App.content = null;
   App.guide = new EPG.Guide({});
+  App.shortEpg = {};
   App.epgState = { loading: false, error: null, url: null };
   App.invalidate();
   if (!p) {
@@ -108,11 +109,13 @@ App.loadActive = function () {
   }
   App.load = { loading: true, progress: 'Ouverture de la playlist…', error: null };
   App.renderHome();
-  return DB.get('pl:' + p.id).then(function (text) {
+  var acc = Xtream.fromPlaylist(p);
+  return Promise.all([acc ? DB.get('xt:' + p.id) : Promise.resolve(null), DB.get('pl:' + p.id)]).then(function (cached) {
     if (token !== App.loadToken) return;
-    if (!text) return App.downloadPlaylist(p, false, token);
+    var raw = cached[0], text = cached[1];
+    if (!raw && !text) return App.downloadPlaylist(p, false, token);
     return nextFrame().then(function () {
-      App.setContent(M3U.parse(text), p);
+      App.setContent(raw ? Xtream.build(raw) : M3U.parse(text), p);
       var meta = Store.get('plmeta:' + p.id, {});
       if (Date.now() - (meta.updated || 0) > PLAYLIST_MAX_AGE) App.downloadPlaylist(p, true, token);
     });
@@ -162,32 +165,60 @@ function fetchText(url, onProgress) {
 
 App.downloadPlaylist = function (p, silent, token) {
   var hadContent = !!App.content;
-  if (!silent || !hadContent) {
+  var showProgress = !silent || !hadContent;
+  if (showProgress) {
     App.load = { loading: true, progress: 'Téléchargement…', error: null };
     App.renderHome();
   }
-  var lastUpdate = 0;
-  return fetchText(p.url, function (bytes) {
-    if ((silent && hadContent) || Date.now() - lastUpdate < 400) return;
-    lastUpdate = Date.now();
-    App.load.progress = 'Téléchargement… ' + formatSize(bytes);
+  var progress = function (msg) {
+    if (!showProgress) return;
+    App.load.progress = msg;
     App.renderStatus();
-  }).then(function (text) {
+  };
+  var done = function (content, cacheKey, cacheValue) {
     if (token !== App.loadToken) return;
-    App.load.progress = 'Analyse de la playlist…';
-    App.renderStatus();
-    return nextFrame().then(function () {
-      var content = M3U.parse(text);
-      if (content.isEmpty) {
-        throw new Error(text.slice(0, 200).indexOf('#EXTM3U') >= 0 ? 'La playlist est vide' :
-          'Ce n\'est pas une playlist M3U (vérifie l\'adresse et l\'abonnement)');
-      }
-      DB.set('pl:' + p.id, text).catch(function (e) { console.warn('cache playlist', e); });
-      Store.set('plmeta:' + p.id, { updated: Date.now() });
-      if (!silent) toast('Playlist à jour : ' + content.allLive.length + ' chaînes, ' + content.allMovies.length + ' films, ' + content.allSeries.length + ' séries');
-      App.setContent(content, p);
+    if (content.isEmpty) throw new Error('La playlist est vide');
+    DB.del(cacheKey === 'xt:' + p.id ? 'pl:' + p.id : 'xt:' + p.id);
+    DB.set(cacheKey, cacheValue).catch(function (e) { console.warn('cache playlist', e); });
+    Store.set('plmeta:' + p.id, { updated: Date.now() });
+    if (!silent) toast('Playlist à jour : ' + content.allLive.length + ' chaînes, ' + content.allMovies.length + ' films, ' + content.allSeries.length + ' séries');
+    App.setContent(content, p);
+  };
+  var viaM3u = function () {
+    var lastUpdate = 0;
+    return fetchText(p.url, function (bytes) {
+      if (Date.now() - lastUpdate < 400) return;
+      lastUpdate = Date.now();
+      progress('Téléchargement… ' + formatSize(bytes));
+    }).then(function (text) {
+      if (token !== App.loadToken) return;
+      progress('Analyse de la playlist…');
+      return nextFrame().then(function () {
+        var content = M3U.parse(text);
+        if (content.isEmpty) {
+          throw new Error(text.slice(0, 200).indexOf('#EXTM3U') >= 0 ? 'La playlist est vide' :
+            'Ce n\'est pas une playlist M3U (vérifie l\'adresse et l\'abonnement)');
+        }
+        done(content, 'pl:' + p.id, text);
+      });
     });
-  }).catch(function (e) {
+  };
+  var acc = Xtream.fromPlaylist(p);
+  var job;
+  if (acc) {
+    // Compte Xtream (saisi, ou déduit d'un lien get.php) : l'API, puis le M3U en secours.
+    job = Xtream.download(acc, progress).then(function (raw) {
+      if (token !== App.loadToken) return;
+      progress('Préparation…');
+      return nextFrame().then(function () { done(Xtream.build(raw), 'xt:' + p.id, raw); });
+    }).catch(function (e) {
+      if (acc.explicit || !p.url) throw e;
+      return viaM3u().catch(function () { throw e; });
+    });
+  } else {
+    job = viaM3u();
+  }
+  return job.catch(function (e) {
     if (token !== App.loadToken) return;
     App.load = { loading: false, progress: null, error: e.message || 'Téléchargement impossible' };
     if (hadContent && !silent) toast(App.load.error);
@@ -230,8 +261,43 @@ App.loadEpg = function (p, force) {
     return promise.then(done).catch(function (e) {
       App.epgState = { loading: false, error: (e && e.message) || 'Guide TV indisponible', url: url };
       App.refreshVisible();
+      App.renderStatus();
     });
   });
+};
+
+/** Programmes d'une chaîne : guide XMLTV, sinon (compte Xtream) guide court demandé à l'API. */
+App.programmes = function (ch, fetchIfMissing) {
+  var list = App.guide.list(ch);
+  if (list.length || !ch || !ch.xtId || !App.content || !App.content.xtream) return list;
+  var entry = App.shortEpg[ch.url];
+  var fresh = entry && Date.now() - entry.time < 15 * 60000;
+  if (fetchIfMissing && !fresh && !(entry && entry.pending)) {
+    var content = App.content;
+    App.shortEpg[ch.url] = { time: entry ? entry.time : 0, list: entry ? entry.list : [], pending: true };
+    Xtream.shortEpg(content, ch).then(function (l) {
+      if (App.content !== content) return;
+      App.shortEpg[ch.url] = { time: Date.now(), list: l };
+      clearTimeout(App.shortEpgTimer);
+      App.shortEpgTimer = setTimeout(App.refreshVisible, 150);
+    }).catch(function () {
+      App.shortEpg[ch.url] = { time: Date.now(), list: [] };
+    });
+  }
+  return entry ? entry.list : [];
+};
+App.progNow = function (ch, t, fetchIfMissing) {
+  var l = App.programmes(ch, fetchIfMissing);
+  for (var i = 0; i < l.length; i++) if (t >= l[i][0] && t < l[i][1]) return l[i];
+  return null;
+};
+App.progNext = function (ch, t) {
+  var l = App.programmes(ch, false);
+  for (var i = 0; i < l.length; i++) if (l[i][0] >= t) return l[i];
+  return null;
+};
+App.progUpcoming = function (ch, n, t, fetchIfMissing) {
+  return App.programmes(ch, fetchIfMissing).filter(function (p) { return p[1] > t; }).slice(0, n);
 };
 
 App.maybeResume = function () {
@@ -490,7 +556,7 @@ function messageSection(title, text, buttons) {
 function chips(text) { return '<em>' + esc(text) + '</em>'; }
 
 function channelRow(c, now) {
-  var p = App.guide.now(c, now);
+  var p = App.progNow(c, now, false);
   return '<div class="ch">' +
     (c.number ? '<span class="num">' + c.number + '</span>' : '') +
     artwork(c.logo, c.name, 'logo') +
@@ -511,6 +577,7 @@ function posterCell(title, image, fav, progress, caption) {
 }
 
 function seasonsLabel(s) {
+  if (s.lazy && !s.lazy.loaded) return 'Série';
   var n = s.episodes.length;
   return (s.seasons.length > 1 ? s.seasons.length + ' saisons · ' : '') + n + ' épisode' + (n > 1 ? 's' : '');
 }
@@ -531,9 +598,11 @@ function infoPanel(ch, now) {
   if (!ch) return '';
   var html = artwork(ch.logo, ch.name, 'big-logo') +
     '<h2>' + esc(ch.name) + '</h2><p class="sub">' + (ch.number ? 'N° ' + ch.number + ' · ' : '') + esc(ch.group) + '</p>';
-  var up = App.guide.upcoming(ch, 5, now);
+  var up = App.progUpcoming(ch, 5, now, true);
   if (!up.length) {
-    var why = App.epgState.loading ? 'Chargement du guide TV…' : App.epgState.error ? App.epgState.error :
+    var why = App.epgState.loading ? 'Chargement du guide TV…' :
+      (App.content && App.content.xtream && ch.xtId && App.shortEpg[ch.url] && App.shortEpg[ch.url].pending) ? 'Chargement du programme…' :
+      App.epgState.error && !(App.content && App.content.xtream) ? App.epgState.error :
       !App.epgState.url ? 'Aucun guide TV pour cette playlist' : 'Pas de guide TV pour cette chaîne';
     return html + '<p class="faint">' + esc(why) + '</p>';
   }
@@ -834,7 +903,7 @@ var Sections = {
       s.playlists.forEach(function (pl) {
         var active = p && pl.id === p.id;
         out.push({
-          title: pl.name, sub: hostOf(pl.url) + (active ? ' · OK : modifier' : ' · OK : utiliser cette playlist'),
+          title: pl.name, sub: (pl.kind === 'xtream' ? 'Xtream · ' + hostOf(pl.host) : hostOf(pl.url)) + (active ? ' · OK : modifier' : ' · OK : utiliser cette playlist'),
           value: active ? '✓ Active' : '', highlight: active,
           action: function () { if (active) App.push(new EditorScreen(pl.id)); else App.setActive(pl.id); },
           long: function () {
@@ -842,11 +911,11 @@ var Sections = {
               { label: 'Utiliser cette playlist', action: function () { App.setActive(pl.id); } },
               { label: 'Modifier', action: function () { App.push(new EditorScreen(pl.id)); } },
               { label: 'Supprimer', action: function () { App.confirmDelete(pl); } },
-            ], hostOf(pl.url));
+            ], pl.kind === 'xtream' ? hostOf(pl.host) : hostOf(pl.url));
           },
         });
       });
-      out.push({ title: 'Ajouter une playlist', sub: 'Adresse M3U de ton abonnement IPTV', value: '›', action: function () { App.push(new EditorScreen(null)); } });
+      out.push({ title: 'Ajouter une playlist', sub: 'Compte Xtream (serveur, identifiant, mot de passe) ou lien M3U', value: '›', action: function () { App.push(new EditorScreen(null)); } });
       if (p) {
         out.push({ header: 'Contenu' });
         var meta = Store.get('plmeta:' + p.id, {});
@@ -856,11 +925,19 @@ var Sections = {
             (App.load.error ? ' · ⚠ ' + App.load.error : ''),
           action: App.refreshPlaylist,
         });
+        if (c && c.account) {
+          var a = c.account;
+          out.push({
+            title: 'Abonnement Xtream',
+            sub: (a.expires ? 'Expire le ' + new Date(a.expires).toLocaleDateString('fr-FR') : 'Sans date d\'expiration') +
+              (a.maxConnections ? ' · ' + (a.activeConnections || 0) + '/' + a.maxConnections + ' connexion(s)' : ''),
+          });
+        }
         var em = Store.get('epgmeta:' + p.id, {});
         out.push({
           title: App.epgState.loading ? 'Guide TV : chargement…' : 'Actualiser le guide TV',
           sub: !App.epgState.url ? 'Aucun guide trouvé : ajoute une adresse XMLTV dans la playlist' :
-            App.epgState.error ? '⚠ ' + App.epgState.error : 'Mis à jour ' + ago(em.updated) + ' · ' + App.guide.count + ' chaînes avec programme',
+            App.epgState.error ? (c && c.xtream ? 'Guide complet indisponible : programme demandé chaîne par chaîne' : '⚠ ' + App.epgState.error) : 'Mis à jour ' + ago(em.updated) + ' · ' + App.guide.count + ' chaînes avec programme',
           action: function () { if (App.content) App.loadEpg(p, true); zone.refresh(); },
         });
       }
@@ -938,13 +1015,23 @@ App.deletePlaylist = function (id) {
   App.loadActive();
 };
 
-App.savePlaylist = function (id, name, url, epgUrl) {
+App.savePlaylist = function (id, data) {
   var s = App.settings;
   var existing = s.playlists.filter(function (p) { return p.id === id; })[0];
-  var p = { id: id || uid(), name: name || 'Ma playlist', url: url.trim(), epgUrl: (epgUrl || '').trim() };
+  var p = {
+    id: id || uid(),
+    name: data.name || 'Ma playlist',
+    kind: data.kind === 'xtream' ? 'xtream' : 'm3u',
+    url: (data.url || '').trim(),
+    host: (data.host || '').trim(),
+    username: (data.username || '').trim(),
+    password: (data.password || '').trim(),
+    epgUrl: (data.epg || '').trim(),
+  };
   if (existing) {
-    if (existing.url !== p.url) { DB.del('pl:' + p.id); Store.set('plmeta:' + p.id, {}); }
-    if (existing.epgUrl !== p.epgUrl) DB.del('epg:' + p.id);
+    var changed = ['kind', 'url', 'host', 'username', 'password'].some(function (k) { return (existing[k] || '') !== p[k]; });
+    if (changed) { DB.del('pl:' + p.id); DB.del('xt:' + p.id); Store.set('plmeta:' + p.id, {}); }
+    if ((existing.epgUrl || '') !== p.epgUrl || changed) DB.del('epg:' + p.id);
     s.playlists = s.playlists.map(function (x) { return x.id === p.id ? p : x; });
   } else {
     s.playlists.push(p);
@@ -959,44 +1046,70 @@ App.savePlaylist = function (id, name, url, epgUrl) {
 /* ================================================================== Écran : édition de playlist */
 
 function EditorScreen(id) {
-  var existing = App.settings.playlists.filter(function (p) { return p.id === id; })[0];
-  var data = { name: existing ? existing.name : '', url: existing ? existing.url : '', epg: existing ? existing.epgUrl : '' };
+  var existing = App.settings.playlists.filter(function (p) { return p.id === id; })[0] || {};
+  var data = {
+    name: existing.name || '', kind: existing.kind || 'xtream', url: existing.url || '',
+    host: existing.host || '', username: existing.username || '', password: existing.password || '', epg: existing.epgUrl || '',
+  };
+  if (!existing.id) data.kind = 'xtream';
+  else if (!existing.kind) {
+    // Ancienne playlist (lien) : si c'est un lien get.php, on affiche le compte Xtream correspondant.
+    var acc = Xtream.fromPlaylist(existing);
+    if (acc) { data.kind = 'xtream'; data.host = acc.host; data.username = acc.user; data.password = acc.pass; }
+    else data.kind = 'm3u';
+  }
   var el = document.createElement('div');
   el.className = 'screen editor';
-  el.innerHTML = '<h1>' + (existing ? 'Modifier la playlist' : 'Nouvelle playlist') + '</h1>' +
-    '<p class="sub">Astuce : avec l\'appli SmartThings sur ton téléphone, tu peux taper (ou coller) l\'adresse au clavier du téléphone.</p>' +
+  el.innerHTML = '<h1>' + (existing.id ? 'Modifier la playlist' : 'Nouvelle playlist') + '</h1>' +
+    '<p class="sub">Astuce : avec l\'appli SmartThings sur ton téléphone (télécommande → clavier), tu peux taper ou coller le texte.</p>' +
     '<div class="list fields"></div>';
   this.el = el;
-  var self = this;
-  function valid() { return /^https?:\/\//i.test(data.url); }
+  function valid() {
+    return data.kind === 'xtream' ? !!(data.host && data.username && data.password) : /^https?:\/\//i.test(data.url);
+  }
+  function ask(title, key, hint) {
+    Modal.prompt(title, data[key], function (v) { data[key] = v; zone.setItems(rows(), zone.index); zone.render(); }, hint);
+  }
   function rows() {
-    var auto = EPG.xtreamUrl(data.url);
     var out = [
-      { title: 'Nom', value: data.name || 'Ma playlist', action: function () { Modal.prompt('Nom de la playlist', data.name, function (v) { data.name = v; zone.refresh(); }); } },
-      { title: 'Adresse de la playlist M3U', sub: data.url || 'http://serveur:port/get.php?username=…&password=…&type=m3u_plus', highlight: !valid(),
-        action: function () { Modal.prompt('Adresse de la playlist M3U', data.url, function (v) { data.url = v; zone.setItems(rows(), zone.index); }, 'Fournie par ton abonnement IPTV (lien M3U / m3u_plus).'); } },
-      { title: 'Guide TV (XMLTV) — facultatif', sub: data.epg || (auto ? 'Automatique (compte Xtream détecté)' : 'Automatique (celui annoncé par la playlist)'),
-        action: function () { Modal.prompt('Adresse du guide TV (XMLTV)', data.epg, function (v) { data.epg = v; zone.refresh(); }, 'Laisse vide pour le guide automatique.'); } },
-      { title: '✓ Enregistrer', button: true, action: function () {
-        if (!valid()) { toast('L\'adresse doit commencer par http:// ou https://'); return; }
-        App.pop();
-        App.savePlaylist(id, data.name, data.url, data.epg);
-      } },
+      { title: 'Nom', value: data.name || 'Ma playlist', action: function () { ask('Nom de la playlist', 'name'); } },
+      { title: 'Type', value: data.kind === 'xtream' ? 'Compte Xtream' : 'Lien M3U',
+        sub: data.kind === 'xtream' ? 'Serveur + identifiant + mot de passe (le plus fiable)' : 'Adresse d\'un fichier M3U',
+        action: function () { data.kind = data.kind === 'xtream' ? 'm3u' : 'xtream'; zone.setItems(rows(), zone.index); zone.render(); } },
     ];
-    if (existing) out.push({ title: 'Supprimer cette playlist', button: true, action: function () { App.pop(); App.confirmDelete(existing); } });
+    if (data.kind === 'xtream') {
+      out.push({ title: 'Serveur', sub: data.host || 'http://serveur.com:8080', highlight: !data.host,
+        action: function () { ask('Adresse du serveur', 'host', 'Avec http:// et le port s\'il y en a un, ex. http://serveur.com:8080'); } });
+      out.push({ title: 'Identifiant', value: data.username || '—', highlight: !data.username, action: function () { ask('Identifiant', 'username'); } });
+      out.push({ title: 'Mot de passe', value: data.password ? '•'.repeat(Math.min(12, data.password.length)) : '—', highlight: !data.password,
+        action: function () { ask('Mot de passe', 'password'); } });
+    } else {
+      out.push({ title: 'Adresse de la playlist M3U', sub: data.url || 'http://serveur:port/get.php?username=…&password=…&type=m3u_plus', highlight: !valid(),
+        action: function () { ask('Adresse de la playlist M3U', 'url', 'Un lien get.php est automatiquement utilisé comme compte Xtream.'); } });
+    }
+    out.push({ title: 'Guide TV (XMLTV) — facultatif', sub: data.epg || 'Automatique', action: function () { ask('Adresse du guide TV (XMLTV)', 'epg', 'Laisse vide pour le guide automatique.'); } });
+    out.push({ title: '✓ Enregistrer', button: true, action: function () {
+      if (!valid()) {
+        toast(data.kind === 'xtream' ? 'Renseigne le serveur, l\'identifiant et le mot de passe' : 'L\'adresse doit commencer par http:// ou https://');
+        return;
+      }
+      if (data.kind === 'xtream' && !/^https?:\/\//i.test(data.host)) data.host = 'http://' + data.host;
+      App.pop();
+      App.savePlaylist(existing.id || null, data);
+    } });
+    if (existing.id) out.push({ title: 'Supprimer cette playlist', button: true, action: function () { App.pop(); App.confirmDelete(existing); } });
     out.push({ title: 'Annuler', button: true, action: function () { App.pop(); } });
     return out;
   }
   var zone = new ListZone(el.querySelector('.fields'), {
-    rowHeight: 92,
-    scrollbar: false,
+    rowHeight: 88,
     render: function (it) {
       return '<div class="setting' + (it.highlight ? ' highlight' : '') + (it.button ? ' as-button' : '') + '"><div class="txt"><div class="t1">' + esc(it.title) + '</div>' +
         (it.sub ? '<div class="t2">' + esc(it.sub) + '</div>' : '') + '</div>' + (it.value ? '<div class="value">' + esc(it.value) + '</div>' : '') + '</div>';
     },
     onEnter: function (it) { it.action(); },
   });
-  zone.setItems(rows(), existing ? 0 : 1);
+  zone.setItems(rows(), existing.id ? 0 : 2);
   this.zones = { fields: zone };
   this.neighbors = {};
   this.zone = 'fields';
@@ -1006,14 +1119,15 @@ function EditorScreen(id) {
 /* ================================================================== Écran : détail d'une série */
 
 function SeriesScreen(series) {
+  var self = this;
   var el = document.createElement('div');
   el.className = 'screen series';
   el.innerHTML = '<div class="left">' + artwork(series.poster, series.name, 'series-cover') +
-    '<h1>' + esc(series.name) + '</h1><p class="sub">' + esc(seasonsLabel(series)) + '</p><p class="sub">' + esc(series.group) + '</p>' +
-    '<div class="fav-row"></div></div>' +
+    '<h1>' + esc(series.name) + '</h1><p class="sub info"></p><p class="sub">' + esc(series.group) + '</p>' +
+    '<div class="fav-row"></div><p class="plot"></p></div>' +
     '<div class="right"><div class="seasons"></div><div class="list eps"></div></div>';
   this.el = el;
-  var season = series.seasons[0] || 1;
+  var season = 1;
   var eps = [];
   var fav = new RowZone(el.querySelector('.fav-row'), {
     render: function () { return App.isFav(series.key) ? '★ Retirer des favoris' : '☆ Ajouter aux favoris'; },
@@ -1025,9 +1139,9 @@ function SeriesScreen(series) {
     isSelected: function (s) { return s === season; },
     onFocus: function (s) { if (s !== season) { season = s; showSeason(); } },
   });
-  seasons.setItems(series.seasons.length > 1 ? series.seasons : [], 0);
   var list = new ListZone(el.querySelector('.eps'), {
     rowHeight: 84,
+    empty: 'Chargement des épisodes…',
     render: function (e) {
       var title = e.name.replace(series.name, '')
         .replace(/^[\s._\-:|]*(S\d{1,2}[\s._\-]*E\d{1,4}|Saison\s*\d+[\s._\-,]*[ÉE]pisode\s*\d+)[\s._\-:|]*/i, '') || ('Épisode ' + e.episode);
@@ -1041,14 +1155,33 @@ function SeriesScreen(series) {
     eps = series.episodes.filter(function (e) { return e.season === season; });
     list.setItems(eps, 0);
   }
-  showSeason();
+  function init() {
+    season = series.seasons[0] || 1;
+    el.querySelector('.info').textContent = seasonsLabel(series);
+    el.querySelector('.plot').textContent = series.plot || '';
+    seasons.setItems(series.seasons.length > 1 ? series.seasons : [], 0);
+    showSeason();
+  }
+  init();
+  if (series.lazy && !series.lazy.loaded) {
+    list.setItems([]);
+    Xtream.loadEpisodes(App.content, series).then(function () {
+      init();
+      if (!series.episodes.length) { list.o.empty = 'Aucun épisode disponible'; list.refresh(); }
+      if (App.top() === self) App.focusZone(self, 'eps', true);
+    }).catch(function (e) {
+      list.o.empty = 'Impossible de charger les épisodes : ' + esc(e.message || '');
+      list.refresh();
+      App.focusZone(self, 'fav', true);
+    });
+  }
   this.zones = { fav: fav, seasons: seasons, eps: list };
   this.neighbors = {
     fav: { right: 'eps' },
     seasons: { down: 'eps', left: 'fav' },
     eps: { up: 'seasons', left: 'fav' },
   };
-  this.zone = 'eps';
+  this.zone = series.lazy && !series.lazy.loaded ? 'fav' : 'eps';
   this.refresh = function () { list.refresh(); fav.render(); };
   this.onShow = this.refresh;
 }
