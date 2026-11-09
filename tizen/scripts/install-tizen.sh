@@ -48,7 +48,7 @@ echo "==> Signature avec le profil « $PROFILE »"
 "$TIZEN" package -t wgt -s "$PROFILE" -- "$TARGET"
 
 echo "==> Installation"
-"$TIZEN" install -n "$TARGET" -t "$DEVICE"
+"$TIZEN" install -n "$TARGET" -t "$DEVICE" || { echo "Installation refusée : Device Manager > clic droit sur la TV > Permit to install applications, puis relance."; exit 1; }
 
 echo "==> Lancement"
 "$TIZEN" run -p "$APP_ID" -t "$DEVICE" >/dev/null || true

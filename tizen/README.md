@@ -90,7 +90,10 @@ certificat.
    connecte-toi avec ton **compte Samsung** quand c'est demandé.
 5. Certificat distributeur : laisse **Public**, vérifie que le **DUID de ta TV** est dans la
    liste (ajoute-le avec le bouton s'il n'y est pas) → **Finish**.
-6. **Sauvegarde le dossier** `C:\tizen-studio-data\keystore` : les mises à jour doivent être
+6. Retourne dans **Tools → Device Manager**, fais un **clic droit sur la TV** →
+   **Permit to install applications** : ça envoie ton certificat à la TV (sans ça,
+   l'installation échoue avec « Check certificate error »). À refaire si tu recrées le certificat.
+7. **Sauvegarde le dossier** `C:\tizen-studio-data\keystore` : les mises à jour doivent être
    signées avec le même certificat auteur.
 
 ### 7. Installer l'appli
@@ -133,9 +136,10 @@ l'IP de ton PC). Les playlists, favoris et réglages sont conservés.
 
 - **« TV non connectée »** : mode développeur activé avec la bonne IP du PC, TV *redémarrée*
   (bouton d'alimentation maintenu), pare-feu Windows qui bloque `sdb` (port 26101).
-- **« Check certificate error »** à l'installation : certificat « Tizen » au lieu de
-  « Samsung », ou DUID de la TV absent du certificat distributeur → recrée le profil (étape 6)
-  avec la TV connectée.
+- **« Check certificate error » (118, -12)** à l'installation : d'abord, Device Manager → clic
+  droit sur la TV → **Permit to install applications**, puis relance le script. Sinon :
+  certificat « Tizen » au lieu de « Samsung », ou DUID de la TV absent du certificat
+  distributeur → recrée le profil (étape 6) avec la TV connectée.
 - **L'appli disparaît après une mise à jour de la TV** : relance le script (étape 7).
 - **La playlist ne charge pas** : vérifie l'adresse dans un navigateur sur le PC. Certains
   fournisseurs bloquent les TV Samsung ; essaie l'adresse `get.php?…&type=m3u_plus&output=ts`.

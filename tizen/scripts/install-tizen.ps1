@@ -76,7 +76,7 @@ if ($LASTEXITCODE -ne 0) { throw "Signature impossible : vérifie le nom du prof
 # --- Installation et lancement
 Step "Installation sur la TV"
 & $tizen install -n $target -t $device
-if ($LASTEXITCODE -ne 0) { throw "Installation refusée par la TV (certificat ne contenant pas le DUID de cette TV ?)." }
+if ($LASTEXITCODE -ne 0) { throw "Installation refusée par la TV. Dans Tizen Studio : Device Manager > clic droit sur la TV > Permit to install applications, puis relance ce script. Si ça persiste : profil de certificat Samsung (pas Tizen) contenant le DUID de la TV." }
 
 Step "Lancement de l'appli"
 & $tizen run -p $AppId -t $device | Out-Null
