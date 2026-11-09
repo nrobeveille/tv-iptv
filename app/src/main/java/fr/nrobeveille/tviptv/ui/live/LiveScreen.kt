@@ -166,60 +166,64 @@ fun ChannelInfoPanel(channel: Channel?, epg: Epg, now: Long, modifier: Modifier 
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (channel == null) return@Column
-        Artwork(
-            url = channel.logo,
-            name = channel.name,
-            fontSize = 28.sp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(140.dp),
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            channel.name,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            buildString {
-                if (channel.number > 0) append("N° ${channel.number} · ")
-                append(channel.group)
-            },
-            fontSize = 13.sp,
-            color = SubtleText,
-            maxLines = 1,
-        )
-        val upcoming = epg.upcoming(channel, 5, now)
-        if (upcoming.isEmpty()) {
-            Spacer(Modifier.height(12.dp))
-            Text("Pas de guide TV pour cette chaîne", fontSize = 14.sp, color = FaintText)
-            return@Column
-        }
-        val first = upcoming.first()
+        if (channel != null) ChannelInfo(channel, epg, now)
+    }
+}
+
+@Composable
+private fun ChannelInfo(channel: Channel, epg: Epg, now: Long) {
+    Artwork(
+        url = channel.logo,
+        name = channel.name,
+        fontSize = 28.sp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(140.dp),
+    )
+    Spacer(Modifier.height(4.dp))
+    Text(
+        channel.name,
+        fontSize = 22.sp,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+    )
+    Text(
+        buildString {
+            if (channel.number > 0) append("N° ${channel.number} · ")
+            append(channel.group)
+        },
+        fontSize = 13.sp,
+        color = SubtleText,
+        maxLines = 1,
+    )
+    val upcoming = epg.upcoming(channel, 5, now)
+    if (upcoming.isEmpty()) {
         Spacer(Modifier.height(12.dp))
-        Text(
-            if (first.isOnAt(now)) "EN CE MOMENT" else "À SUIVRE",
-            fontSize = 12.sp,
-            color = Accent,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(first.title, fontSize = 18.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Text("${formatTime(first.start)} – ${formatTime(first.stop)}", fontSize = 13.sp, color = SubtleText)
-        if (first.isOnAt(now)) ProgressLine(first.progressAt(now), Modifier.fillMaxWidth())
-        first.description?.let {
-            Text(it, fontSize = 13.sp, color = SubtleText, maxLines = 5, overflow = TextOverflow.Ellipsis)
-        }
-        if (upcoming.size > 1) {
-            Spacer(Modifier.height(10.dp))
-            Text("ENSUITE", fontSize = 12.sp, color = Accent, fontWeight = FontWeight.SemiBold)
-            upcoming.drop(1).forEach { p ->
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(formatTime(p.start), fontSize = 14.sp, color = SubtleText)
-                    Text(p.title, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
+        Text("Pas de guide TV pour cette chaîne", fontSize = 14.sp, color = FaintText)
+        return
+    }
+    val first = upcoming.first()
+    Spacer(Modifier.height(12.dp))
+    Text(
+        if (first.isOnAt(now)) "EN CE MOMENT" else "À SUIVRE",
+        fontSize = 12.sp,
+        color = Accent,
+        fontWeight = FontWeight.SemiBold,
+    )
+    Text(first.title, fontSize = 18.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    Text("${formatTime(first.start)} – ${formatTime(first.stop)}", fontSize = 13.sp, color = SubtleText)
+    if (first.isOnAt(now)) ProgressLine(first.progressAt(now), Modifier.fillMaxWidth())
+    first.description?.let {
+        Text(it, fontSize = 13.sp, color = SubtleText, maxLines = 5, overflow = TextOverflow.Ellipsis)
+    }
+    if (upcoming.size > 1) {
+        Spacer(Modifier.height(10.dp))
+        Text("ENSUITE", fontSize = 12.sp, color = Accent, fontWeight = FontWeight.SemiBold)
+        upcoming.drop(1).forEach { p ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(formatTime(p.start), fontSize = 14.sp, color = SubtleText)
+                Text(p.title, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }

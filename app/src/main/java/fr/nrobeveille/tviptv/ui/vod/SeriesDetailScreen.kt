@@ -62,7 +62,7 @@ fun SeriesDetailScreen(vm: IptvViewModel, seriesKey: String, isTop: Boolean) {
         MessageView(
             "Série introuvable",
             "Elle n'est plus dans la playlist.",
-            actions = listOf("Retour" to { vm.back() }),
+            actions = listOf("Retour" to { vm.back(); Unit }),
             firstActionModifier = Modifier.tracked(registry, "back"),
         )
         LaunchedEffect(isTop) { if (isTop) { awaitLayout(); registry.request("back") } }

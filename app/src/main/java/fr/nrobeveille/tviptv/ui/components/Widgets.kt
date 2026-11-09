@@ -196,8 +196,8 @@ fun ProgressLine(progress: Float, modifier: Modifier = Modifier, color: Color = 
 @Composable
 fun MessageView(
     title: String,
-    modifier: Modifier = Modifier,
     message: String? = null,
+    modifier: Modifier = Modifier,
     actions: List<Pair<String, () -> Unit>> = emptyList(),
     firstActionModifier: Modifier = Modifier,
 ) {
