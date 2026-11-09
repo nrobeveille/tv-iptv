@@ -110,6 +110,10 @@ Le script télécharge la dernière version sur GitHub, se connecte à la TV, si
 ton profil `tviptv`, l'installe et la lance. « IPTV » apparaît ensuite dans les applis de la
 TV (tu peux l'épingler sur l'accueil).
 
+Pour que l'appli démarre directement sur ton abonnement, ajoute `-Playlist "lien M3U ou get.php"`
+(mémorisé dans `tviptv-playlist.txt` à côté du script pour les mises à jour suivantes ; il
+reste sur ton PC, jamais sur GitHub).
+
 Options : `-CertProfile autreNom`, `-Source C:\...\tv-iptv\tizen` (version locale, pour
 développer), `-Wgt chemin\tv-iptv.wgt`, `-TizenStudio D:\tizen-studio`.
 

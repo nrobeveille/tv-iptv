@@ -13,3 +13,5 @@
 .kotlin/
 *.jks
 *.keystore
+tizen/scripts/tviptv-playlist.txt
+tviptv-playlist.txt

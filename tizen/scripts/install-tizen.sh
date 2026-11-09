@@ -5,6 +5,9 @@
 #   ./install-tizen.sh 192.168.1.50 tviptv          # avec un autre nom de profil de certificat
 #   SOURCE=../ ./install-tizen.sh 192.168.1.50      # depuis le dossier tizen/ local
 #   WGT=/chemin/tv-iptv.wgt ./install-tizen.sh 192.168.1.50
+#   PLAYLIST="http://serveur/get.php?username=…&password=…&type=m3u_plus" ./install-tizen.sh 192.168.1.50
+#     → playlist par défaut intégrée à l'appli installée, mémorisée dans tviptv-playlist.txt
+#       (à côté du script) pour les mises à jour ; jamais envoyée sur GitHub.
 #
 # Prérequis : Tizen Studio (+ TV Extensions + Samsung Certificate Extension), un profil de
 # certificat Samsung, et la TV en mode développeur avec l'IP de ce PC (voir tizen/README.md).
@@ -35,6 +38,19 @@ else
   URL="$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=30" \
     | python3 -c 'import json,sys; r=[x for x in json.load(sys.stdin) if x["tag_name"].startswith("tizen-v")]; print(next(a["browser_download_url"] for a in r[0]["assets"] if a["name"].endswith(".wgt")))')"
   curl -fsSL "$URL" -o "$TARGET"
+fi
+
+PLAYLIST_FILE="$(cd "$(dirname "$0")" && pwd)/tviptv-playlist.txt"
+if [ -n "${PLAYLIST:-}" ]; then
+  printf '%s' "$PLAYLIST" > "$PLAYLIST_FILE"
+elif [ -f "$PLAYLIST_FILE" ]; then
+  PLAYLIST="$(cat "$PLAYLIST_FILE")"
+fi
+if [ -n "${PLAYLIST:-}" ]; then
+  echo "==> Ajout de la playlist par défaut"
+  mkdir -p "$WORK/def/js"
+  python3 -c 'import json,sys; print("window.DEFAULT_PLAYLIST = " + json.dumps({"name": "Mon IPTV", "url": sys.argv[1]}) + ";")' "$PLAYLIST" > "$WORK/def/js/defaults.js"
+  (cd "$WORK/def" && zip -q "$TARGET" js/defaults.js)
 fi
 
 echo "==> Connexion à la TV ($TV_IP)"

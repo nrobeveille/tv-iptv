@@ -1238,6 +1238,13 @@ App.handleKey = (function () {
 App.start = function () {
   registerKeys();
   App.settings = Object.assign(App.defaults(), Store.get('settings', {}));
+  // Playlist fournie par le script d'installation : utilisée tant qu'aucune n'est configurée.
+  var d = window.DEFAULT_PLAYLIST;
+  if (d && d.url && !App.settings.playlists.length) {
+    App.settings.playlists.push({ id: 'default', name: d.name || 'Mon IPTV', kind: 'm3u', url: d.url, host: '', username: '', password: '', epgUrl: d.epg || '' });
+    App.settings.activeId = 'default';
+    App.save();
+  }
   document.addEventListener('keydown', App.handleKey.down);
   document.addEventListener('keyup', App.handleKey.up);
   App.buildHome();

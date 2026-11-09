@@ -6,6 +6,11 @@
     .\install-tizen.ps1 -TvIp 192.168.1.50 -CertProfile tviptv         # profil de certificat (Tizen Studio)
     .\install-tizen.ps1 -TvIp 192.168.1.50 -Source ..\               # depuis le dossier tizen/ local
     .\install-tizen.ps1 -TvIp 192.168.1.50 -Wgt C:\chemin\tv-iptv.wgt
+    .\install-tizen.ps1 -TvIp 192.168.1.50 -Playlist "http://serveur/get.php?username=…&password=…&type=m3u_plus&output=ts"
+
+  -Playlist : playlist par défaut intégrée à l'appli installée (elle démarre directement dessus).
+  Elle est mémorisée dans tviptv-playlist.txt à côté du script, pour les mises à jour suivantes.
+  Elle n'est jamais envoyée sur GitHub.
 
   Sans -Source ni -Wgt, le script télécharge la dernière version publiée sur GitHub.
   Prérequis : Tizen Studio (+ TV Extensions + Samsung Certificate Extension), un profil de
@@ -16,7 +21,9 @@ param(
   [string]$CertProfile = "tviptv",
   [string]$Source = "",
   [string]$Wgt = "",
-  [string]$TizenStudio = ""
+  [string]$TizenStudio = "",
+  [string]$Playlist = "",
+  [string]$PlaylistName = "Mon IPTV"
 )
 
 $ErrorActionPreference = "Stop"
@@ -45,8 +52,15 @@ if ($Source) {
   foreach ($item in @("index.html", "config.xml", "icon.png", "css", "js")) {
     Copy-Item (Join-Path $Source $item) $app -Recurse
   }
-  Compress-Archive -Path (Join-Path $app "*") -DestinationPath (Join-Path $work "tv-iptv.zip")
-  Move-Item (Join-Path $work "tv-iptv.zip") $target
+  Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+  # Chemins avec « / » dans le zip (Compress-Archive de Windows PowerShell met des « \ », refusés par la TV).
+  $zip = [System.IO.Compression.ZipFile]::Open($target, [System.IO.Compression.ZipArchiveMode]::Create)
+  try {
+    Get-ChildItem $app -Recurse -File | ForEach-Object {
+      $rel = $_.FullName.Substring($app.Length + 1).Replace('\', '/')
+      [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $_.FullName, $rel) | Out-Null
+    }
+  } finally { $zip.Dispose() }
 } elseif ($Wgt) {
   Copy-Item $Wgt $target
 } else {
@@ -57,6 +71,28 @@ if ($Source) {
   $asset = $release.assets | Where-Object { $_.name -like "*.wgt" } | Select-Object -First 1
   Write-Host "Version $($release.tag_name)"
   Invoke-WebRequest $asset.browser_download_url -OutFile $target -Headers @{ "User-Agent" = "tv-iptv-installer" }
+}
+
+# --- Playlist par défaut (reste sur ce PC)
+$playlistFile = Join-Path $PSScriptRoot "tviptv-playlist.txt"
+if ($Playlist) {
+  Set-Content -Path $playlistFile -Value $Playlist -Encoding UTF8
+} elseif (Test-Path $playlistFile) {
+  $Playlist = (Get-Content $playlistFile -Raw).Trim()
+}
+if ($Playlist) {
+  Step "Ajout de la playlist par défaut"
+  Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+  $json = @{ name = $PlaylistName; url = $Playlist } | ConvertTo-Json -Compress
+  $zip = [System.IO.Compression.ZipFile]::Open($target, [System.IO.Compression.ZipArchiveMode]::Update)
+  try {
+    $old = $zip.GetEntry("js/defaults.js")
+    if ($old) { $old.Delete() }
+    $entry = $zip.CreateEntry("js/defaults.js")
+    $writer = New-Object System.IO.StreamWriter($entry.Open(), (New-Object System.Text.UTF8Encoding($false)))
+    $writer.Write("window.DEFAULT_PLAYLIST = $json;")
+    $writer.Dispose()
+  } finally { $zip.Dispose() }
 }
 
 # --- Connexion à la TV
