@@ -1,0 +1,80 @@
+name: Build APK
+
+on:
+  push:
+    branches: ['**']
+    tags-ignore: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Le numéro de build sert de versionCode : chaque version publiée est plus récente que la précédente.
+  VERSION_CODE: ${{ github.run_number }}
+  ON_MAIN: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Préparer la clé de signature
+        env:
+          KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "SIGNING_STORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "PUBLISH=$ON_MAIN" >> "$GITHUB_ENV"
+          else
+            # Sans clé stable, l'APK ne pourrait pas mettre à jour l'appli installée : pas de release.
+            echo "::warning title=Clé de signature manquante::APK compilé (artefact) mais pas publié. Ajoute les secrets SIGNING_KEYSTORE_BASE64 et SIGNING_PASSWORD (voir README)."
+            echo "PUBLISH=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Compiler l'APK
+        env:
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          UPDATE_TOKEN: ${{ secrets.UPDATE_TOKEN }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --console=plain
+          cp app/build/outputs/apk/release/app-release.apk tv-iptv.apk
+
+      - name: Garder l'APK comme artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv-iptv-apk
+          path: tv-iptv.apk
+
+      - name: Publier la release
+        if: env.PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v1.0.${VERSION_CODE}"
+          gh release create "$TAG" tv-iptv.apk \
+            --title "IPTV $TAG" \
+            --notes "Compilé automatiquement depuis ${GITHUB_SHA::7} : $(git log -1 --pretty=%s)" \
+            --target "$GITHUB_SHA" \
+            --latest
+          # On ne garde que les 5 dernières versions.
+          gh release list --limit 100 --json tagName,createdAt \
+            -q 'sort_by(.createdAt) | reverse | .[5:] | .[].tagName' \
+            | xargs -r -n1 gh release delete --yes --cleanup-tag
